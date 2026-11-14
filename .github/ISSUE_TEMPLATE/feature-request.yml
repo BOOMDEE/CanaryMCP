@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a project capability
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        项目目标与技术栈仍待确认。请聚焦需要解决的问题，而不是假设某项能力已存在。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 谁遇到什么问题？目前如何处理？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 描述希望发生什么，以及关键约束。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
