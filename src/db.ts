@@ -1,5 +1,6 @@
-import type { ContextRecord, DeviceRecord, Env } from "./types.js";
+import type { ContextRecord, DeviceRecord, Env, WebhookRecord } from "./types.js";
 import { sha256Base64Url } from "./security.js";
+import { validateContextInput } from "./validation.js";
 
 export async function authenticate(request: Request, env: Env, scope: "read" | "write"): Promise<DeviceRecord | null> {
   const authorization = request.headers.get("authorization");
@@ -34,16 +35,46 @@ export async function touchDevice(env: Env, deviceId: string): Promise<void> {
     .bind(new Date().toISOString(), deviceId).run();
 }
 
+export async function getWebhook(env: Env, deviceId: string): Promise<WebhookRecord | null> {
+  return env.DB.prepare(
+    "SELECT encrypted_config, enabled, updated_at FROM device_webhooks WHERE device_id = ?1",
+  ).bind(deviceId).first<WebhookRecord>();
+}
+
+export async function listWebhookDeliveries(env: Env, deviceId: string): Promise<Array<{
+  id: string;
+  created_at: string;
+  status_code: number;
+  success: number;
+}>> {
+  const result = await env.DB.prepare(
+    "SELECT id, created_at, status_code, success FROM webhook_deliveries WHERE device_id = ?1 ORDER BY created_at DESC LIMIT 10",
+  ).bind(deviceId).all();
+  return result.results as Array<{ id: string; created_at: string; status_code: number; success: number }>;
+}
+
 export function toPublicContext(record: ContextRecord): {
   category: string;
   capturedAt: string;
   expiresAt: string;
   payload: Record<string, unknown>;
-} {
+} | null {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(record.payload_json);
+  } catch {
+    return null;
+  }
+  const validated = validateContextInput({
+    category: record.category,
+    capturedAt: record.captured_at,
+    payload,
+  });
+  if (!validated) return null;
   return {
     category: record.category,
     capturedAt: record.captured_at,
     expiresAt: record.expires_at,
-    payload: JSON.parse(record.payload_json) as Record<string, unknown>,
+    payload: validated.payload,
   };
 }

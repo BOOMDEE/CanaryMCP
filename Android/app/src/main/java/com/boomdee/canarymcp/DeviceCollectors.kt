@@ -8,13 +8,20 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.os.Build
+import android.os.Environment
 import android.os.Process
+import android.os.StatFs
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.roundToInt
 
 object DeviceCollectors {
@@ -35,6 +42,48 @@ object DeviceCollectors {
                 BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "not_charging"
                 else -> "unknown"
             })
+            .put("capturedAt", Instant.now().toString())
+    }
+
+    fun device(context: Context): JSONObject = JSONObject()
+        .put("manufacturer", Build.MANUFACTURER.take(100))
+        .put("model", Build.MODEL.take(100))
+        .put("androidVersion", Build.VERSION.RELEASE.orEmpty().take(30))
+        .put("sdkInt", Build.VERSION.SDK_INT)
+        .put("appVersion", BuildConfig.VERSION_NAME.take(40))
+        .put("locale", Locale.getDefault().toLanguageTag().take(40))
+        .put("timeZone", TimeZone.getDefault().id.take(100))
+        .put("capturedAt", Instant.now().toString())
+
+    fun network(context: Context): JSONObject {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = manager.activeNetwork
+        val capabilities = activeNetwork?.let { manager.getNetworkCapabilities(it) }
+        val transport = when {
+            capabilities == null -> "none"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "other"
+        }
+        return JSONObject()
+            .put("transport", transport)
+            .put("internetAvailable", capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
+            .put("validated", capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
+            .put("metered", activeNetwork != null && manager.isActiveNetworkMetered)
+            .put("capturedAt", Instant.now().toString())
+    }
+
+    fun storage(): JSONObject {
+        val stats = StatFs(Environment.getDataDirectory().absolutePath)
+        val quantum = 64L * 1024L * 1024L
+        fun roundDown(value: Long): Long = (value / quantum) * quantum
+        val totalBytes = maxOf(quantum, roundDown(stats.totalBytes))
+        val availableBytes = minOf(totalBytes, roundDown(stats.availableBytes))
+        return JSONObject()
+            .put("totalBytes", totalBytes)
+            .put("availableBytes", availableBytes)
+            .put("lowStorage", availableBytes < 1024L * 1024L * 1024L)
             .put("capturedAt", Instant.now().toString())
     }
 

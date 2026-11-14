@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -59,12 +61,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,12 +112,21 @@ private fun CanaryHome() {
     var refreshCounter by remember { mutableIntStateOf(0) }
     var usagePending by rememberSaveable { mutableStateOf(false) }
     var accessibilityPending by rememberSaveable { mutableStateOf(false) }
+    var webhookUrl by remember { mutableStateOf(tokenStore.readWebhookUrl().orEmpty()) }
+    var webhookSigningSecret by remember { mutableStateOf(tokenStore.readWebhookSigningSecret().orEmpty()) }
+    var webhookConfigured by remember { mutableStateOf(settings.getBoolean("webhook_configured", false)) }
+    var webhookEnabled by remember { mutableStateOf(settings.getBoolean("webhook_enabled", false)) }
+    var webhookStatusKnown by remember { mutableStateOf(false) }
+    var revealWebhookUrl by remember { mutableStateOf(false) }
 
     var batteryEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_battery", false)) }
     var locationEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_location", false)) }
     var preciseLocation by rememberSaveable { mutableStateOf(settings.getBoolean("precise_location", false)) }
     var usageEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_usage", false)) }
     var accessibilityEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_accessibility", false)) }
+    var deviceEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_device", false)) }
+    var networkEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_network", false)) }
+    var storageEnabled by rememberSaveable { mutableStateOf(settings.getBoolean("share_storage", false)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -171,16 +184,42 @@ private fun CanaryHome() {
         refreshCounter += 1
     }
 
-    LaunchedEffect(refreshCounter) {
+    fun removeRemoteSnapshot(category: String) {
+        val settingKey = when (category) {
+            "battery" -> "share_battery"
+            "location" -> "share_location"
+            "usage" -> "share_usage"
+            "accessibility" -> "share_accessibility"
+            "device" -> "share_device"
+            "network" -> "share_network"
+            "storage" -> "share_storage"
+            else -> return
+        }
+        val token = tokenStore.readDeviceToken() ?: return
+        val baseUrl = workerUrl
+        scope.launch {
+            try {
+                val deleted = CloudApi(baseUrl, token).deleteCategory(category) {
+                    (category == "location" && settings.getBoolean("location_redaction_pending", false)) ||
+                        !settings.getBoolean(settingKey, false)
+                }
+                if (category == "location" && deleted) settings.edit().putBoolean("location_redaction_pending", false).apply()
+            } catch (_: Exception) {
+                snackbars.showSnackbar("云端$category 快照删除失败；联网后请重试。")
+            }
+        }
+    }
+
+    LaunchedEffect(refreshCounter, paired) {
         if (locationEnabled && !hasAnyLocationPermission(context)) {
             locationEnabled = false
             settings.edit().putBoolean("share_location", false).apply()
-            deleteRemoteCategory(context, tokenStore, workerUrl, "location")
+            removeRemoteSnapshot("location")
         }
         if (usageEnabled && !DeviceCollectors.hasUsageAccess(context)) {
             usageEnabled = false
             settings.edit().putBoolean("share_usage", false).apply()
-            deleteRemoteCategory(context, tokenStore, workerUrl, "usage")
+            removeRemoteSnapshot("usage")
         }
         if (accessibilityEnabled && !DeviceCollectors.isAccessibilityEnabled(context)) {
             accessibilityEnabled = false
@@ -188,21 +227,41 @@ private fun CanaryHome() {
             context.getSharedPreferences(AccessibilityCaptureService.PREFERENCES, Context.MODE_PRIVATE)
                 .edit().remove(AccessibilityCaptureService.KEY_LAST_SNAPSHOT)
                 .putBoolean(AccessibilityCaptureService.KEY_ARMED, false).apply()
-            deleteRemoteCategory(context, tokenStore, workerUrl, "accessibility")
+            removeRemoteSnapshot("accessibility")
         }
         if (!hasFineLocationPermission(context) && preciseLocation) {
             preciseLocation = false
-            settings.edit().putBoolean("precise_location", false).apply()
-            deleteRemoteCategory(context, tokenStore, workerUrl, "location")
+            settings.edit().putBoolean("precise_location", false).putBoolean("location_redaction_pending", true).apply()
+        }
+        if (settings.getBoolean("location_redaction_pending", false)) removeRemoteSnapshot("location")
+        if (paired) {
+            val readToken = tokenStore.readMcpToken()
+            if (readToken != null) {
+                try {
+                    val remote = CloudApi(workerUrl, readToken).webhookStatus()
+                    webhookConfigured = remote.optBoolean("configured", false)
+                    webhookEnabled = remote.optBoolean("enabled", false)
+                    webhookStatusKnown = true
+                    settings.edit()
+                        .putBoolean("webhook_configured", webhookConfigured)
+                        .putBoolean("webhook_enabled", webhookEnabled)
+                        .apply()
+                    if (!webhookConfigured) {
+                        tokenStore.clearWebhookConfiguration()
+                        webhookUrl = ""
+                        webhookSigningSecret = ""
+                    }
+                } catch (_: Exception) {
+                    webhookStatusKnown = false
+                }
+            } else {
+                webhookStatusKnown = false
+            }
         }
     }
 
     fun saveConsent(key: String, value: Boolean) {
         settings.edit().putBoolean(key, value).apply()
-    }
-
-    fun removeRemoteSnapshot(category: String) {
-        deleteRemoteCategory(context, tokenStore, workerUrl, category)
     }
 
     Scaffold(
@@ -249,7 +308,7 @@ private fun CanaryHome() {
                     label = { Text("配对密钥") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
-                    supportingText = { Text("只在配对请求中发送，不保存在本机。") },
+                    supportingText = { Text("只在配对请求中发送，不保存在本机；仅向你信任的 Worker 地址发送共享密钥。") },
                 )
                 Button(
                     onClick = {
@@ -264,6 +323,7 @@ private fun CanaryHome() {
                                     deviceId = result.deviceId
                                     settings.edit().putString("device_id", result.deviceId).apply()
                                     paired = true
+                                    webhookStatusKnown = false
                                     pairingSecret = ""
                                     snackbars.showSnackbar("设备已配对。写入令牌与 MCP 只读令牌已分别加密保存。")
                                 } catch (error: Exception) {
@@ -290,7 +350,17 @@ private fun CanaryHome() {
                                 } else {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("CanaryMCP MCP bearer token", token))
-                                    Toast.makeText(context, "MCP 令牌已复制；请勿分享给不受信任的服务。", Toast.LENGTH_LONG).show()
+                                    val copiedFingerprint = sha256Fingerprint(token)
+                                    Handler(Looper.getMainLooper()).postDelayed({
+                                        val currentText = runCatching {
+                                            clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+                                        }.getOrNull()
+                                        if (currentText != null && sha256Fingerprint(currentText) == copiedFingerprint) {
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) clipboard.clearPrimaryClip()
+                                            else clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                                        }
+                                    }, 60_000)
+                                    Toast.makeText(context, "MCP 令牌已复制，1 分钟后尝试自动清除；请勿分享给不受信任的服务。", Toast.LENGTH_LONG).show()
                                 }
                             }) { Text("复制 MCP 令牌") }
                             OutlinedButton(onClick = { askRevoke = true }) { Text("撤销设备") }
@@ -341,7 +411,7 @@ private fun CanaryHome() {
                             onCheckedChange = { enabled ->
                                 if (!enabled) {
                                     preciseLocation = false
-                                    saveConsent("precise_location", false)
+                                    settings.edit().putBoolean("precise_location", false).putBoolean("location_redaction_pending", true).apply()
                                     removeRemoteSnapshot("location")
                                 } else if (hasFineLocationPermission(context)) {
                                     preciseLocation = true
@@ -411,6 +481,133 @@ private fun CanaryHome() {
                 },
             )
 
+            ConsentCard(
+                title = "设备摘要",
+                description = "设备厂商/型号、Android 与 App 版本、系统语言和时区；不读取 IMEI、Android ID 或广告标识。",
+                checked = deviceEnabled,
+                onCheckedChange = { enabled ->
+                    deviceEnabled = enabled
+                    saveConsent("share_device", enabled)
+                    if (!enabled) removeRemoteSnapshot("device")
+                },
+            )
+            ConsentCard(
+                title = "网络状态",
+                description = "当前连接类型、互联网可用/验证状态和是否计费；不读取 SSID、IP、MAC 地址或浏览记录。",
+                checked = networkEnabled,
+                onCheckedChange = { enabled ->
+                    networkEnabled = enabled
+                    saveConsent("share_network", enabled)
+                    if (!enabled) removeRemoteSnapshot("network")
+                },
+            )
+            ConsentCard(
+                title = "存储空间",
+                description = "设备内部存储总量与可用量按 64 MiB 粗略取整，并标记是否低于 1 GiB；不读取文件名或内容。",
+                checked = storageEnabled,
+                onCheckedChange = { enabled ->
+                    storageEnabled = enabled
+                    saveConsent("share_storage", enabled)
+                    if (!enabled) removeRemoteSnapshot("storage")
+                },
+            )
+
+            if (paired) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("AI Webhook 消息", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            when {
+                                !webhookStatusKnown -> "尚未从 Worker 核实状态；本地显示仅为缓存，离线时不代表 Webhook 仍然可用。"
+                                webhookEnabled -> "已启用：MCP 客户端可在你明确要求时发送短文本到此目标。目标与签名密钥已通过 Android Keystore 加密保存在本机。"
+                                else -> "默认关闭。启用后，MCP 只能向你在此填写的单一 HTTPS 目标发送短文本；不会附带设备上下文，也不能自行选择目标。"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        OutlinedTextField(
+                            value = webhookUrl,
+                            onValueChange = { webhookUrl = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isBusy,
+                            label = { Text("Webhook HTTPS URL") },
+                            placeholder = { Text("https://example.net/webhook/…") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            visualTransformation = if (revealWebhookUrl) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                TextButton(onClick = { revealWebhookUrl = !revealWebhookUrl }) {
+                                    Text(if (revealWebhookUrl) "隐藏" else "显示")
+                                }
+                            },
+                            singleLine = true,
+                            supportingText = { Text("仅允许 HTTPS / 443 端口；保存后服务器会加密保存目标。URL 可能自带访问凭证，请勿粘贴到聊天中。") },
+                        )
+                        OutlinedTextField(
+                            value = webhookSigningSecret,
+                            onValueChange = { webhookSigningSecret = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isBusy,
+                            label = { Text("签名密钥（可选）") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            supportingText = { Text("填写后以 HMAC-SHA256 发送 X-CanaryMCP-Signature；至少 32 个字符。") },
+                        )
+                        Button(
+                            onClick = {
+                                val token = tokenStore.readDeviceToken()
+                                if (token == null || webhookUrl.isBlank()) {
+                                    scope.launch { snackbars.showSnackbar("请先配对，并填写 HTTPS Webhook 地址。") }
+                                } else {
+                                    isBusy = true
+                                    scope.launch {
+                                        try {
+                                            CloudApi(workerUrl, token).configureWebhook(webhookUrl.trim(), webhookSigningSecret, true)
+                                            tokenStore.saveWebhookConfiguration(webhookUrl.trim(), webhookSigningSecret)
+                                            webhookConfigured = true
+                                            webhookEnabled = true
+                                            webhookStatusKnown = true
+                                            settings.edit().putBoolean("webhook_configured", true).putBoolean("webhook_enabled", true).apply()
+                                            snackbars.showSnackbar("Webhook 已启用。MCP 仅可在用户明确要求时向此目标发送文字。")
+                                        } catch (error: Exception) {
+                                            snackbars.showSnackbar(error.message ?: "Webhook 设置失败；服务器未回显目标地址或密钥。")
+                                        } finally { isBusy = false }
+                                    }
+                                }
+                            },
+                            enabled = !isBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(if (webhookEnabled) "保存并更新目标" else "保存并启用 Webhook") }
+                        if (webhookConfigured || webhookEnabled) {
+                            OutlinedButton(
+                                onClick = {
+                                    val token = tokenStore.readDeviceToken()
+                                    if (token == null) scope.launch { snackbars.showSnackbar("设备令牌不可用，请重新配对。") }
+                                    else {
+                                        isBusy = true
+                                        scope.launch {
+                                            try {
+                                                CloudApi(workerUrl, token).deleteWebhook()
+                                                tokenStore.clearWebhookConfiguration()
+                                                webhookUrl = ""
+                                                webhookSigningSecret = ""
+                                                webhookConfigured = false
+                                                webhookEnabled = false
+                                                webhookStatusKnown = true
+                                                settings.edit().putBoolean("webhook_configured", false).putBoolean("webhook_enabled", false).apply()
+                                                snackbars.showSnackbar("Webhook 已停用，目标、密钥和投递历史已删除。")
+                                            } catch (error: Exception) {
+                                                snackbars.showSnackbar(error.message ?: "停用 Webhook 失败。")
+                                            } finally { isBusy = false }
+                                        }
+                                    }
+                                },
+                                enabled = !isBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("停用并删除 Webhook 配置") }
+                        }
+                    }
+                }
+            }
+
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("手动同步", style = MaterialTheme.typography.titleMedium)
@@ -467,9 +664,11 @@ private fun CanaryHome() {
             title = { Text("数据与权限") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("四类数据分别开关，默认关闭；不启用后台位置、通知、通讯录，也不读取 IMEI/Android ID 等系统标识或自动同步。")
+                    Text("七类设备上下文分别开关，默认关闭；不启用后台位置、通知、通讯录，也不读取 IMEI/Android ID 等系统标识或自动同步。")
                     Text("位置、使用情况与无障碍能力只在你分别授权后使用。无障碍快照须你主动武装一次，并在切换到目标应用后采集；服务不会执行点击手势。")
-                    Text("上传仅由“同步已授权数据”触发；App 写入令牌与 MCP 只读令牌分别保存在 Android Keystore，D1 仅保留最新快照并在七天后清理。可关闭类别删除其云端数据，或删除全部快照、撤销整台设备。")
+                    Text("设备摘要不含系统唯一标识；网络摘要不含 SSID/IP/MAC；存储空间按 64 MiB 粗略取整。上传仅由“同步已授权数据”触发；D1 每类只保留最新快照并在七天后清理。")
+                    Text("Webhook 默认关闭。启用后，AI 只能向你明确配置的 HTTPS 目标发送短文本，不能选择目标或读取配置密钥，也不会自动附带设备上下文；你可停用并删除目标与投递历史。")
+                    Text("App 写入令牌、MCP 只读令牌与本地 Webhook 设置分别保存在 Android Keystore；可关闭类别删除云端数据，或删除全部快照、撤销整台设备。")
                     Text("无障碍服务面向辅助功能用途，应用商店对该权限有额外要求。发布前需确认分发平台政策与实际产品用途。")
                 }
             },
@@ -493,10 +692,15 @@ private fun CanaryHome() {
                             tokenStore.clear()
                             context.getSharedPreferences(AccessibilityCaptureService.PREFERENCES, Context.MODE_PRIVATE)
                                 .edit().clear().apply()
-                            settings.edit().remove("device_id").apply()
+                            settings.edit().remove("device_id").putBoolean("webhook_configured", false).putBoolean("webhook_enabled", false).apply()
                             deviceId = ""
+                            webhookUrl = ""
+                            webhookSigningSecret = ""
+                            webhookConfigured = false
+                            webhookEnabled = false
+                            webhookStatusKnown = false
                             paired = false
-                            snackbars.showSnackbar("设备已撤销；云端快照已请求删除。")
+                            snackbars.showSnackbar("设备已撤销；云端快照与 Webhook 配置已请求删除。")
                         } catch (error: Exception) {
                             snackbars.showSnackbar(error.message ?: "撤销失败；请检查网络后重试。")
                         } finally { isBusy = false }
@@ -535,9 +739,6 @@ private fun hasAnyLocationPermission(context: Context): Boolean =
 private fun hasFineLocationPermission(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-private fun deleteRemoteCategory(context: Context, tokenStore: SecureTokenStore, workerUrl: String, category: String) {
-    val token = tokenStore.readDeviceToken() ?: return
-    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-        runCatching { CloudApi(workerUrl, token).deleteCategory(category) }
-    }
-}
+private fun sha256Fingerprint(value: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(value.toByteArray(Charsets.UTF_8))
+    .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }

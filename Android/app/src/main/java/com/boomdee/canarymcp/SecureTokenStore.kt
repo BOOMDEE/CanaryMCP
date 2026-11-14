@@ -32,6 +32,34 @@ class SecureTokenStore(context: Context) {
     @Synchronized
     fun readMcpToken(): String? = decrypt("mcp")
 
+    @Synchronized
+    fun saveWebhookConfiguration(url: String, signingSecret: String) {
+        val (urlIv, encryptedUrl) = encrypt(url)
+        val (secretIv, encryptedSecret) = encrypt(signingSecret)
+        preferences.edit()
+            .putString("webhook_url_iv", urlIv)
+            .putString("webhook_url_token", encryptedUrl)
+            .putString("webhook_secret_iv", secretIv)
+            .putString("webhook_secret_token", encryptedSecret)
+            .apply()
+    }
+
+    @Synchronized
+    fun readWebhookUrl(): String? = decrypt("webhook_url")
+
+    @Synchronized
+    fun readWebhookSigningSecret(): String? = decrypt("webhook_secret")
+
+    @Synchronized
+    fun clearWebhookConfiguration() {
+        preferences.edit()
+            .remove("webhook_url_iv")
+            .remove("webhook_url_token")
+            .remove("webhook_secret_iv")
+            .remove("webhook_secret_token")
+            .apply()
+    }
+
     private fun encrypt(value: String): Pair<String, String> {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())

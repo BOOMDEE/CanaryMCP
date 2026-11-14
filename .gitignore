@@ -16,6 +16,8 @@ dist/
 build/
 coverage/
 .cache/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 .venv/
 venv/
 __pycache__/

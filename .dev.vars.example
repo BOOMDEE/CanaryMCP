@@ -1,2 +1,4 @@
-# Copy to .dev.vars locally. Use a long random value; never commit the real file.
-PAIRING_SECRET=replace-with-a-long-random-secret
+# Copy to .dev.vars locally and replace both placeholders with independent 32-byte random base64url values.
+# Each resulting value should be 43 characters. Never commit the real file.
+PAIRING_SECRET=replace-with-43-char-random-base64url-value
+WEBHOOK_ENCRYPTION_KEY=replace-with-a-different-43-char-random-base64url-value
