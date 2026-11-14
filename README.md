@@ -6,7 +6,7 @@
 
 CanaryMCP 把 Android 设备上下文、Cloudflare Worker/D1 与 Remote MCP 接起来：用户逐类开启权限，手动采集并同步；已配对的 MCP 客户端只能读取该设备的数据。设备所有者还可单独配置一个 Webhook，让 AI 在用户明确要求时发出短文本。
 
-> **状态：`0.2.0` 发布候选，尚未公开发布。** 建议 tag 为 `v0.2.0`。生产 Cloudflare、Android 真机权限、外部 MCP 客户端和收件端签名尚未端到端验证；公开 GitHub Release 需先审阅确切 tag、Release notes 与附件。Android Release APK 当前未签名。
+> **状态：`0.2.1` 为待审阅候选；`v0.2.0` 已于 2026-11-14 公开发布。** 拟议 tag 为 `v0.2.1`。首个签名 Android APK 候选已构建并通过本地验签，但生产 Cloudflare、Android 真机权限、外部 MCP 客户端和收件端签名尚未端到端验证；公开 Release 仍须审阅确切 tag、notes 与附件，并完成 `PRE-RELEASE-CHECKLIST.md` 中的阻塞项。
 
 ### 能力与边界
 
@@ -70,7 +70,7 @@ cd Android
 
 配对后设备写入 token、MCP 只读 token 与 Webhook 本地配置分别由 Android Keystore 加密。复制 MCP token 是显式操作，剪贴板会在 1 分钟后尝试清除；Webhook URL 默认遮蔽并可短暂显示。App 恢复前台时会向 Worker 回查 Webhook 状态。关闭类别会在共享互斥锁下请求删除，避免旧删除请求覆盖新同步。
 
-正式 APK 尚未签名；不要把 Debug APK 当作发行附件。无障碍服务涉及高敏感信息，发布前必须确认产品用途与应用商店规则。
+`v0.2.1` 候选 APK 已完成签名 Release 构建和本地证书校验，但尚未进行真机测试，也不代表应用商店政策已确认。不要把 Debug APK 当作发行附件。无障碍服务涉及高敏感信息，公开发布前必须确认产品用途与应用商店规则。
 
 ### 文档站
 
@@ -109,7 +109,7 @@ Worker 单元测试、静态文档构建和 Wrangler dry-run 不等同于生产 
 
 CanaryMCP connects Android device context to a Cloudflare Worker/D1 backend and a Remote MCP endpoint. The owner opts into each category and starts every upload manually. Paired MCP clients can read only that device. The owner may separately configure one webhook destination so an AI client can send short text when the user explicitly asks.
 
-> **Status: `0.2.0` release candidate; not publicly released.** Proposed tag: `v0.2.0`. Production Cloudflare, real-device permission flows, external MCP interoperability, and receiver-side signature checks have not been end-to-end tested. Review the exact tag, release notes, and attachments before any public GitHub Release. The Android Release APK is unsigned.
+> **Status: `0.2.1` is a candidate under review; `v0.2.0` was publicly released on 2026-11-14.** Proposed tag: `v0.2.1`. The first signed Android APK candidate has been built and locally verified, but production Cloudflare, real-device permission flows, external MCP interoperability, and receiver-side signature checks have not been end-to-end tested. Review the exact tag, notes, and attachments and resolve the blockers in `PRE-RELEASE-CHECKLIST.md` before public release.
 
 ### Capabilities and boundaries
 
@@ -173,7 +173,7 @@ cd Android
 
 Android Keystore encrypts the device-write token, MCP-read-only token, and local webhook settings. Copying the MCP token is explicit; the clipboard is cleared after one minute when possible. The webhook URL is masked by default. On resume, the app checks webhook state from the Worker. Category deletion is serialized with sync and re-checks the latest owner preference before sending.
 
-The Release APK is unsigned; do not attach a Debug APK as a production release. Accessibility-service usage is highly sensitive and needs product-purpose and app-store policy review.
+The `v0.2.1` candidate APK has been built and its certificate verified locally; it has not been tested on a real device or reviewed against app-store policy. Never use a Debug APK as a production release. Accessibility-service usage is highly sensitive and needs product-purpose and app-store policy review.
 
 ### Documentation site
 

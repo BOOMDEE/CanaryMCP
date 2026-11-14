@@ -28,7 +28,7 @@ No scheduled background sync, location history, contacts, messages, notification
 
 ## Candidate status
 
-Candidate version: `0.2.0`; proposed tag: `v0.2.0`. No public GitHub Release exists. The Android Release APK is unsigned and is not suitable as an installable release attachment. Review the exact tag, notes, and attachments before any public release.
+`v0.2.0` was publicly released on 2026-11-14. Candidate version: `0.2.1`; proposed tag: `v0.2.1`. The candidate APK and Release remain under review. Resolve the blockers in `PRE-RELEASE-CHECKLIST.md` and review the exact tag, notes, and attachments before any public release.
 
 ## Official references
 

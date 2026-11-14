@@ -253,7 +253,7 @@ async function sendConfiguredWebhook(
 }
 
 async function handleMcp(request: Request, env: Env, device: { id: string; label: string }) {
-  const server = new McpServer({ name: "CanaryMCP", version: "0.2.0" });
+  const server = new McpServer({ name: "CanaryMCP", version: "0.2.1" });
   server.tool(
     "read_device_context",
     "Read one context category that this paired device owner explicitly enabled and manually synced. Each category contains at most one latest snapshot and expires after seven days. Choose only the category needed; never infer missing categories.",

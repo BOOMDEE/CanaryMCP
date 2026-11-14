@@ -30,7 +30,7 @@ CanaryMCP 不做后台定时同步、位置轨迹、通讯录/短信/通知读�
 
 ## 项目状态
 
-候选版本为 `0.2.0`，建议 Release tag 为 `v0.2.0`。当前尚无公开 GitHub Release；Android Release APK 未签名，因此不会作为可安装发行附件。完成任何正式发布之前，应先审查候选 tag、完整 Release notes 与附件清单。
+`v0.2.0` 已于 2026-11-14 公开发布；当前候选为 `0.2.1`，拟议 Release tag 为 `v0.2.1`。候选 APK 和 Release 尚待审阅；公开发布前仍须完成 `PRE-RELEASE-CHECKLIST.md` 中的阻塞项，并审查确切 tag、完整 notes 与附件清单。
 
 ## 官方资料
 

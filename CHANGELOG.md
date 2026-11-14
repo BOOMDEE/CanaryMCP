@@ -1,8 +1,20 @@
 # CanaryMCP 变更记录 / Changelog
 
-重要变化按版本候选与发布日期记录。当前 `0.2.0` 为未公开发布的候选。
+重要变化按版本候选与发布日期记录。`0.2.0` 已于 2026-11-14 发布；`0.2.1` 仍为待审阅候选。
 
-## [Unreleased] — proposed `v0.2.0`
+## [Unreleased] — proposed `v0.2.1`
+
+### 发布准备 / Release preparation
+
+- 将 Android `versionCode` 提升至 `3`、`versionName` 提升至 `0.2.1`；本版本不改变 Android 或 Worker 功能。
+- 增加从 `CANARYMCP_RELEASE_*` 环境变量读取本地签名配置的能力；签名密钥与口令不进入仓库，未配置时 Release 构建仍为未签名。
+- 已构建并验证首个签名 Android Release APK 候选：6,851,866 bytes，SHA-256 `03f8e9343a14df4b7a757cfe2fabf9e8548db272fd1f6c15f3e8ccfc8aa53da8`；签名使用 RSA-4096 与 APK Signature Scheme v2。密钥库保存在仓库外，不作为公开附件。尚未创建公开 tag 或 GitHub Release。
+
+### 发布前待维护者处理 / Release blockers
+
+- 依照 `PRE-RELEASE-CHECKLIST.md`，尚需配置可用的支持与私密安全报告渠道、正式隐私/数据处理说明，并完成真机撤权/离线流程、生产 Worker/D1/MCP 集成、Webhook 收件端验签、`/v1/pair` 边缘限流监控，以及无障碍分发政策审查。
+
+## [0.2.0] — 2026-11-14
 
 ### 新增 / Added
 
