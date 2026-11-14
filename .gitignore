@@ -21,6 +21,15 @@ venv/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
+.dev.vars
+.wrangler/
+local.properties
+.gradle/
+**/build/
+*.jks
+*.keystore
+*.apk
+*.aab
 
 # Editor and operating-system files
 .DS_Store

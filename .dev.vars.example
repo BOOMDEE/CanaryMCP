@@ -1,0 +1,2 @@
+# Copy to .dev.vars locally. Use a long random value; never commit the real file.
+PAIRING_SECRET=replace-with-a-long-random-secret
